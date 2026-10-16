@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
-import { foregroundBounds } from '../lib/cutout-mask';
+import { alphaFromLogits, foregroundBounds } from '../lib/cutout-mask';
 import { prepareCutout } from '../lib/images';
 
 describe('Recortes sin alterar el original', () => {
+  it('interpreta correctamente float16 crudo de WebGPU y float32 de WASM', () => {
+    // IEEE754 binary16: -10, -1, 0, +1, +10. Reading the bits as numbers made every pixel opaque.
+    expect([...alphaFromLogits(new Uint16Array([0xc900,0xbc00,0,0x3c00,0x4900]),'float16')]).toEqual([0,69,128,186,255]);
+    expect([...alphaFromLogits(new Float32Array([-10,-1,0,1,10]),'float32')]).toEqual([0,69,128,186,255]);
+    expect(()=>alphaFromLogits(new Float32Array([NaN]),'float32')).toThrow();
+  });
   it('recorta el espacio sobrante con margen y rechaza máscaras vacías o completamente opacas', () => {
     const mask = new Uint8Array(100 * 100);
     for (let y=25;y<75;y++) for (let x=30;x<70;x++) mask[y*100+x]=255;

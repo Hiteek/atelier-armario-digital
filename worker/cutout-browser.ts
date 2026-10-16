@@ -1,4 +1,5 @@
 import { AutoModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
+import { alphaFromLogits } from '../lib/cutout-mask';
 
 // We download fixed public weights only. User images never leave this worker.
 const modelId = 'studioludens/birefnet-lite-512';
@@ -37,10 +38,9 @@ scope.onmessage = async ({ data: blob }) => {
     const { pixel_values } = await processor!(image);
     const output = await model({ input_image: pixel_values });
     const logits = output.logits ?? Object.values(output)[0];
-    const mask = logits.sigmoid();
-    const alpha = Uint8Array.from(mask.data as Float32Array, value => Math.round(Math.max(0, Math.min(1, value)) * 255));
+    const alpha = alphaFromLogits(logits.data as ArrayLike<number>, logits.type);
     scope.postMessage({ type: 'result', alpha, width: 512, height: 512 }, [alpha.buffer]);
-    pixel_values.dispose(); logits.dispose(); mask.dispose();
+    pixel_values.dispose(); logits.dispose();
   } catch {
     scope.postMessage({ type: 'error', message: 'Este dispositivo no pudo completar el recorte. Prueba desde un ordenador o con una foto más sencilla. Tu original sigue guardado.' });
   }

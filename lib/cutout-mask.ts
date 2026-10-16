@@ -1,3 +1,20 @@
+// ORT may expose float16 output as raw Uint16 bits on browsers without Float16Array.
+export function alphaFromLogits(values: ArrayLike<number>, type: string) {
+  const halfBits = type === 'float16' && values instanceof Uint16Array;
+  const alpha = new Uint8Array(values.length);
+  for (let i = 0; i < values.length; i++) {
+    let value = Number(values[i]);
+    if (halfBits) {
+      const sign = value & 0x8000 ? -1 : 1, exponent = (value >> 10) & 31, fraction = value & 1023;
+      value = exponent === 0 ? sign * 2 ** -14 * (fraction / 1024)
+        : exponent === 31 ? (fraction ? NaN : sign * Infinity) : sign * 2 ** (exponent - 15) * (1 + fraction / 1024);
+    }
+    if (!Number.isFinite(value)) throw new Error('El dispositivo devolvió una máscara inválida.');
+    alpha[i] = Math.round(255 / (1 + Math.exp(-value)));
+  }
+  return alpha;
+}
+
 // Bounds are calculated from the mask, never by changing the original RGB pixels.
 export function foregroundBounds(alpha: Uint8Array | Uint8ClampedArray, width: number, height: number) {
   if (alpha.length !== width * height) throw new Error('Máscara inválida.');
