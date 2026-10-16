@@ -9,7 +9,7 @@ env.useBrowserCache = true;
 env.backends.onnx.wasm!.numThreads = 1;
 env.backends.onnx.wasm!.proxy = false;
 
-const scope = self as unknown as { onmessage: ((e: MessageEvent<Blob>) => Promise<void>) | null; postMessage: (data: unknown, transfer?: Transferable[]) => void };
+const scope = self as unknown as { onmessage: ((e: MessageEvent<{ blob: Blob; preferCpu: boolean }>) => Promise<void>) | null; postMessage: (data: unknown, transfer?: Transferable[]) => void };
 const progress = (message: string) => scope.postMessage({ type: 'progress', message });
 let model: Awaited<ReturnType<typeof AutoModel.from_pretrained>> | undefined;
 let processor: Awaited<ReturnType<typeof AutoProcessor.from_pretrained>> | undefined;
@@ -18,18 +18,19 @@ const options = { revision, progress_callback: (event: { status: string; progres
   if (event.status === 'progress' && typeof event.progress === 'number') progress(`Descargando el recortador: ${Math.round(event.progress)} %. Tus fotos siguen en tu dispositivo.`);
 } };
 
-scope.onmessage = async ({ data: blob }) => {
+scope.onmessage = async ({ data: { blob, preferCpu } }) => {
   try {
     if (!model) {
       progress('Preparando el recortador. La primera descarga puede tardar unos minutos…');
       const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ features: Set<string> } | null> } }).gpu;
-      const adapter = await gpu?.requestAdapter().catch(() => null);
+      const adapter = preferCpu ? null : await gpu?.requestAdapter().catch(() => null);
       const useGpu = adapter?.features.has('shader-f16');
       try {
         model = await AutoModel.from_pretrained(modelId, { ...options, device: useGpu ? 'webgpu' : 'wasm', dtype: useGpu ? 'fp16' : 'fp32' });
         usingGpu = !!useGpu;
       } catch (error) {
         if (!useGpu) throw error;
+        scope.postMessage({ type:'diagnostic', engine:'webgpu', reason:'initialization-failed' });
         progress('Preparando una alternativa compatible con tu dispositivo…');
         model = await AutoModel.from_pretrained(modelId, { ...options, device: 'wasm', dtype: 'fp32' });
       }
@@ -61,11 +62,15 @@ scope.onmessage = async ({ data: blob }) => {
       progress('Probando un recorte compatible con tu dispositivo. El original se conserva…');
       await model.dispose(); model = undefined; usingGpu = false;
       model = await AutoModel.from_pretrained(modelId, { ...options, device: 'wasm', dtype: 'fp32' });
+      progress('Separando la prenda del fondo en tu dispositivo…');
       alpha = await infer();
     }
     scope.postMessage({ type: 'result', alpha, width: 512, height: 512 }, [alpha.buffer]);
     pixel_values.dispose();
-  } catch {
-    scope.postMessage({ type: 'error', message: 'Este dispositivo no pudo completar el recorte. Prueba desde un ordenador o con una foto más sencilla. Tu original sigue guardado.' });
+  } catch (error) {
+    const message = error instanceof Error && error.message.startsWith('No se pudo separar bien')
+      ? error.message + ' Tu original sigue guardado.'
+      : 'No se pudo recortar esta foto en este dispositivo. Prueba otra foto o un ordenador. Tu original sigue guardado.';
+    scope.postMessage({ type: 'error', message });
   }
 };

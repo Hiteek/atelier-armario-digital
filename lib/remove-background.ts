@@ -3,6 +3,8 @@ import { foregroundBounds } from './cutout-mask';
 let worker: Worker | undefined;
 let active = false;
 let idle: ReturnType<typeof setTimeout> | undefined;
+let preferCpu = false;
+try { preferCpu = sessionStorage.getItem('atelier-cutout-cpu') === '1'; } catch { /* Private browsing can disable storage. */ }
 export async function removeBackground(blob: Blob, onProgress: (message: string) => void, signal: AbortSignal): Promise<Blob> {
   if (active) throw new Error('Termina el recorte actual antes de iniciar otro.');
   active = true; clearTimeout(idle);
@@ -16,14 +18,17 @@ export async function removeBackground(blob: Blob, onProgress: (message: string)
       const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); currentWorker.onmessage = null; currentWorker.onerror = null; };
       currentWorker.onmessage = ({ data }) => {
         if (data.type === 'progress') onProgress(data.message);
-        else if (data.type === 'diagnostic') console.info('cutout-mask-check', data);
+        else if (data.type === 'diagnostic') {
+          console.info('cutout-mask-check', JSON.stringify(data));
+          if (data.engine === 'webgpu') { preferCpu = true; try { sessionStorage.setItem('atelier-cutout-cpu','1'); } catch { /* In-memory fallback still works. */ } }
+        }
         else if (data.type === 'result') { finish(); resolve(data); }
         else { stop(); finish(); reject(new Error(data.message)); }
       };
       currentWorker.onerror = () => { stop(); finish(); reject(new Error('No se pudo iniciar el recortador. Tu original sigue guardado.')); };
       signal.addEventListener('abort', abort, { once: true });
       if (signal.aborted) return abort();
-      currentWorker.postMessage(blob);
+      currentWorker.postMessage({ blob, preferCpu });
     });
     if (signal.aborted) throw new Error('Recorte cancelado.');
     const bounds = foregroundBounds(mask.alpha, mask.width, mask.height);
