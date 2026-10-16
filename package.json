@@ -12,6 +12,7 @@
     "render:free": "tsx worker/render-free.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.57.0",
     "dotenv": "^16.6.0",

@@ -14,3 +14,14 @@ export async function preparePhoto(file: File) {
   const thumbnail = await sharp(photo).resize(512, 512, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
   return { photo, thumbnail };
 }
+
+export async function prepareCutout(file: File) {
+  if (file.type !== 'image/webp' || file.size === 0 || file.size > 3 * 1024 * 1024) throw new Error('Invalid cutout');
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const metadata = await sharp(bytes, { limitInputPixels: 4_000_000 }).metadata();
+  if (metadata.format !== 'webp' || !metadata.hasAlpha || (metadata.pages ?? 1) > 1) throw new Error('Invalid cutout');
+  const photo = await sharp(bytes, { limitInputPixels: 4_000_000 }).rotate()
+    .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 92, alphaQuality: 100 }).toBuffer();
+  const thumbnail = await sharp(photo).resize(512, 512, { fit: 'inside', withoutEnlargement: true }).webp({ quality: 88, alphaQuality: 100 }).toBuffer();
+  return { photo, thumbnail };
+}

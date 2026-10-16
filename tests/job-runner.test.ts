@@ -20,6 +20,16 @@ function fixtures(cleanupError = false) {
   return { db, updates, storage, rpc, results };
 }
 describe('Procesador compartido sin trabajador de pago', () => {
+  it('usa el recorte aprobado como referencia y conserva el tipo de archivo correcto', async () => {
+    const f=fixtures(); const cutout=`${owner}/cutouts/${gs[0].id}/approved/photo.webp`;
+    const cleaned=gs.map((g,i)=>i===0?{...g,cutout_path:cutout,version:2}:g); f.results.garments=cleaned;
+    const edit=vi.fn(async (_input: unknown)=>({data:[{b64_json:Buffer.from('fixture').toString('base64')}]}));
+    await createJobRunner(f.db,()=>({images:{edit}}) as unknown as OpenAI)({...renderJob,render_key:renderKey(profile,outfit,cleaned)});
+    expect(f.storage.download).toHaveBeenCalledWith(cutout);
+    expect(f.storage.download).not.toHaveBeenCalledWith(gs[0].photo_path);
+    const input=edit.mock.calls[0][0] as {image:File[]};
+    expect(input.image[1].type).toBe('image/webp');
+  });
   it('elimina archivos sin necesitar una clave de IA', async () => {
     const f = fixtures(); const getAi = vi.fn(() => { throw new Error('No AI'); });
     await createJobRunner(f.db, getAi)({ ...renderJob, kind: 'cleanup', payload: { paths: [`${owner}/old.jpg`] } });

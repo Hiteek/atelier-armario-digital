@@ -26,6 +26,7 @@ beforeAll(async () => {
     alter default privileges in schema public grant execute on functions to anon,authenticated;
   `);
   await db.exec(await readFile(new URL('../supabase/migrations/001_armario.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../supabase/migrations/20261016014231_garment_cutouts.sql', import.meta.url), 'utf8'));
   await db.exec(`insert into auth.users values('${owner}'),('${stranger}');
     insert into app_owner(user_id) values('${owner}');
     insert into profiles(user_id,photo_path,photo_version) values('${owner}','${owner}/profile/photo.jpg',1);
@@ -38,6 +39,35 @@ afterEach(async () => { await db.exec('rollback'); });
 afterAll(async () => { await db.close(); });
 
 describe('Base de datos PostgreSQL, RLS y cola', () => {
+  it('guarda el recorte sin cambiar el original ni borrar simulaciones y permite volver atrás', async () => {
+    const base = `${owner}/cutouts/${item}/first`;
+    const job = await enqueue('render','before-cutout',{outfit_id:outfit});
+    await query('insert into simulations(user_id,outfit_id,cache_key,image_path,photo_version) values($1,$2,$3,$4,1)', [owner,outfit,'previous-look',`${owner}/simulations/saved.png`]);
+    await query('select set_garment_cutout($1,$2,1,$3,$4)', [owner,item,`${base}/photo.webp`,`${base}/thumb.webp`]);
+    expect((await query<{ version:number; photo_path:string; cutout_path:string }>('select version,photo_path,cutout_path from garments where id=$1',[item]))[0]).toEqual({version:2,photo_path:`${owner}/garment/photo.jpg`,cutout_path:`${base}/photo.webp`});
+    expect((await query<{status:string}>('select status from ai_jobs where id=$1',[job.id]))[0].status).toBe('cancelled');
+    expect(await query('select cache_key from simulations')).toEqual([{cache_key:'previous-look'}]);
+    await query('select set_garment_cutout($1,$2,1,$3,$4)', [owner,item,`${base}/photo.webp`,`${base}/thumb.webp`]); // duplicate is a no-op
+    expect((await query<{version:number}>('select version from garments where id=$1',[item]))[0].version).toBe(2);
+    await query('select set_garment_cutout($1,$2,2,null,null)', [owner,item]);
+    expect((await query<{cutout_path:string|null}>('select cutout_path from garments where id=$1',[item]))[0].cutout_path).toBeNull();
+    expect((await query<{payload:{paths:string[]}}>("select payload from ai_jobs where kind='cleanup'"))[0].payload.paths).toContain(`${base}/photo.webp`);
+  });
+  it('retira también los recortes al eliminar una prenda y restringe el nuevo RPC al servidor', async () => {
+    const base = `${owner}/cutouts/${item}/first`;
+    await query('select set_garment_cutout($1,$2,1,$3,$4)',[owner,item,`${base}/photo.webp`,`${base}/thumb.webp`]);
+    await query('select change_garment($1,$2,$3,true)',[owner,item,{}]);
+    const jobs = await query<{payload:{paths:string[]}}>("select payload from ai_jobs where kind='cleanup'");
+    expect(jobs.flatMap(j=>j.payload.paths)).toEqual(expect.arrayContaining([`${base}/photo.webp`,`${base}/thumb.webp`,`${owner}/garment/photo.jpg`]));
+    expect((await query<{allowed:boolean}>("select has_function_privilege('authenticated','public.set_garment_cutout(uuid,uuid,integer,text,text)','EXECUTE') as allowed"))[0].allowed).toBe(false);
+  });
+  it('rechaza recortes ajenos y ediciones con versión antigua', async () => {
+    await expect(query('select set_garment_cutout($1,$2,1,$3,$4)',[owner,item,`${stranger}/photo.webp`,`${stranger}/thumb.webp`])).rejects.toThrow('INVALID_PATH');
+    // A failed PostgreSQL statement aborts its transaction; restart the test transaction.
+    await db.exec('rollback; begin');
+    const base=`${owner}/cutouts/${item}/stale`;
+    await expect(query('select set_garment_cutout($1,$2,9,$3,$4)',[owner,item,`${base}/photo.webp`,`${base}/thumb.webp`])).rejects.toThrow('SOURCE_CHANGED');
+  });
   it('revoca el permiso anónimo heredado y comprueba al propietario sin privilegios elevados', async () => {
     expect((await query<{ allowed: boolean }>("select has_function_privilege('anon','public.is_armario_owner()','EXECUTE') as allowed"))[0].allowed).toBe(false);
     expect((await query<{ definer: boolean }>("select prosecdef as definer from pg_proc where oid='public.is_armario_owner()'::regprocedure"))[0].definer).toBe(false);
@@ -135,4 +165,3 @@ describe('Base de datos PostgreSQL, RLS y cola', () => {
     await expect(query('select complete_suggestions($1,$2)', [j.id, [{ title: 'Inventado', explanation: 'Prueba', occasion: 'cita', garment_ids: [item], missing: [] }]])).rejects.toThrow(/STALE_GARMENT/);
   });
 });
-

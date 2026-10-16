@@ -26,7 +26,7 @@ Para activar el backend, copia `.env.example` a `.env.local` y rellena los valor
 
 ## Supabase: proyecto nuevo y privado
 
-1. Crea un proyecto dedicado. Ejecuta `supabase/migrations/001_armario.sql` una sola vez con permisos administrativos.
+1. Crea un proyecto dedicado. Ejecuta `supabase/migrations/001_armario.sql` y después las migraciones con fecha de esa carpeta, una sola vez y en orden, con permisos administrativos.
 2. Desactiva los registros públicos en Authentication. Crea manualmente tu usuario con correo confirmado y contraseña.
 3. Copia su UUID desde Authentication y ejecuta, reemplazando el marcador por el UUID real:
 
@@ -41,6 +41,14 @@ insert into public.profiles (user_id) values ('UUID-DEL-USUARIO');
 La migración crea el bucket `wardrobe` como privado. Los enlaces de lectura duran 15 minutos y se renuevan al refrescar la aplicación. Cada objeto comienza con el UUID del propietario. Los enlaces ya emitidos pueden seguir siendo válidos hasta que expiren o se elimine el objeto; retirar un elemento lo oculta inmediatamente y la cola elimina sus archivos.
 
 ## Procesamiento a petición e IA
+
+### Fotos sin fondo y composición de conjuntos
+
+En cada prenda, **Quitar fondo** procesa la imagen en un Web Worker del navegador con Transformers.js y BiRefNet Lite 512 (revisión fijada). No se envían fotos a Hugging Face ni se consume OpenAI para este paso. Se descargan pesos públicos desde Hugging Face y el runtime WASM de su distribución; la primera descarga de pesos es de 94 MB en WebGPU fp16 o 183 MB en WASM fp32. El navegador puede reutilizar su caché; en dispositivos con poca memoria el recorte puede fallar y el original permanece disponible. El modelo se libera tras 90 segundos sin uso.
+
+La copia se muestra antes de guardarla. **Guardar recorte** almacena WebP transparente y su miniatura en el bucket privado, conservando original y clasificación. **Usar foto original** revierte la selección y encola la eliminación de los derivados. Guardar o revertir incrementa la versión para las próximas solicitudes y cancela generaciones en curso que dependan de la prenda. Las simulaciones ya guardadas se conservan y no se regeneran automáticamente. Retirar una prenda elimina también sus recortes mediante la cola. Las propuestas y la agenda conservan sus identificadores.
+
+Las tarjetas y el detalle del look muestran una composición de las fotos reales, sin una llamada de generación. Las simulaciones futuras reciben los recortes guardados (o el original cuando no hay recorte). Quitar el fondo no garantiza abaratar la llamada: hay que medir el consumo real de referencias y salida. Revisa que el recorte conserve bordes y estampados. Créditos y licencias en `THIRD_PARTY_NOTICES.md`.
 
 La web solicita `POST /api/process` mientras haya trabajos pendientes y la sesión esté abierta. Vercel verifica al propietario y transmite su sesión corta al origen HTTPS exacto del procesador en Render. Render vuelve a verificar la sesión con Supabase y devuelve una aceptación rápida, luego procesa un lote limitado de la cola. El catálogo, las fotos y la cola permanecen en Supabase, nunca en el disco temporal de Render. Cerrar la pestaña no borra datos: el lote activo puede terminar mientras el servicio siga encendido; las solicitudes pendientes se retoman al volver. Una generación interrumpida puede quedar incierta y no se repite automáticamente.
 

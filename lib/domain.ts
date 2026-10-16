@@ -27,6 +27,7 @@ export type Garment = {
   pattern: string; formality: number; available: boolean; status: string;
   photo_path: string; thumbnail_path: string; version: number; deleted_at: string | null;
   photo_url?: string; thumbnail_url?: string;
+  cutout_path?: string | null; cutout_thumbnail_path?: string | null; cutout_url?: string;
 };
 export type Profile = {
   user_id: string; display_name: string; styles: string[]; favorite_colors: string[];

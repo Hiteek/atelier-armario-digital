@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { adminClient, isConfigured, sessionClient } from '@/lib/supabase';
 import { authenticated, dbCheck, errorResponse, HttpError, json, limitedBody, readJson, requestKey, sameOrigin } from '@/lib/http';
 import { eventInput, garmentInput, limaMonth, outfitInput, profileInput, renderKey, suggestionInput, validateOutfit, type Garment, type Outfit, type Profile } from '@/lib/domain';
-import { preparePhoto } from '@/lib/images';
+import { prepareCutout, preparePhoto } from '@/lib/images';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -44,7 +44,10 @@ async function dispatch(req: Request, ctx: Context) {
     const [profile, garments, outfits, events, jobs, simulations, usage, pending] = results;
     return json({
       profile: { ...profile.data, photo_url: await signed(db, profile.data!.photo_path) },
-      garments: await Promise.all(garments.data!.map(async g => ({ ...g, thumbnail_url: await signed(db, g.thumbnail_path), photo_url: await signed(db, g.photo_path) }))),
+      garments: await Promise.all(garments.data!.map(async g => {
+        const [thumbnail_url, photo_url, cutout_url] = await Promise.all([signed(db, g.cutout_thumbnail_path || g.thumbnail_path), signed(db, g.photo_path), signed(db, g.cutout_path)]);
+        return { ...g, thumbnail_url, photo_url, cutout_url };
+      })),
       outfits: outfits.data, events: events.data, jobs: jobs.data!.map(({ payload, ...j }) => ({ ...j, outfit_id: payload?.outfit_id })),
       simulations: await Promise.all(simulations.data!.map(async s => ({ ...s, image_url: await signed(db, s.image_path) }))),
       image_requests: usage.count ?? 0, pending_jobs: pending.count ?? 0
@@ -89,7 +92,42 @@ async function dispatch(req: Request, ctx: Context) {
   if (route === 'profile-photo' && method === 'DELETE') {
     dbCheck((await admin.rpc('change_photo', { p_user: user.id, p_path: null })).error); return json({ ok: true });
   }
-  if (route === 'garments' && id && (method === 'PATCH' || method === 'DELETE')) {
+  if (route === 'garments' && id && path[2] === 'cutout' && (method === 'POST' || method === 'DELETE')) {
+    z.string().uuid().parse(id);
+    const current = await db.from('garments').select('*').eq('id', id).is('deleted_at', null).maybeSingle(); dbCheck(current.error);
+    if (!current.data) throw new HttpError(404, 'No se encontró la prenda.');
+    const g = current.data as Garment;
+    if (method === 'DELETE') {
+      const { version } = z.object({ version: z.number().int().positive() }).parse(await readJson(req));
+      const result = await admin.rpc('set_garment_cutout', { p_user: user.id, p_id: id, p_version: version, p_path: null, p_thumb: null });
+      if (result.error?.message.includes('SOURCE_CHANGED')) throw new HttpError(409, 'La prenda cambió. Cierra y vuelve a abrirla.');
+      dbCheck(result.error); return json({ ok: true });
+    }
+    const key = requestKey(req);
+    const base = `${user.id}/cutouts/${id}/${key}`; const photoPath = `${base}/photo.webp`; const thumbPath = `${base}/thumb.webp`;
+    if (g.cutout_path === photoPath) return json({ ok: true });
+    const raw = await limitedBody(req, 3.5 * 1024 * 1024);
+    const form = await new Response(new Uint8Array(raw), { headers: { 'Content-Type': req.headers.get('content-type') || '' } }).formData();
+    const version = z.coerce.number().int().positive().parse(form.get('version'));
+    if (g.version !== version) throw new HttpError(409, 'La prenda cambió. Cierra y vuelve a abrirla antes de guardar el recorte.');
+    const file = form.get('file'); if (!(file instanceof File)) throw new HttpError(400, 'Falta el recorte.');
+    let photos: Awaited<ReturnType<typeof prepareCutout>>;
+    try { photos = await prepareCutout(file); } catch { throw new HttpError(400, 'El recorte no es válido. Vuelve a quitar el fondo.'); }
+    dbCheck((await admin.storage.from('wardrobe').upload(photoPath, photos.photo, { contentType: 'image/webp', upsert: true })).error);
+    try {
+      dbCheck((await admin.storage.from('wardrobe').upload(thumbPath, photos.thumbnail, { contentType: 'image/webp', upsert: true })).error);
+      const result = await admin.rpc('set_garment_cutout', { p_user: user.id, p_id: id, p_version: version, p_path: photoPath, p_thumb: thumbPath });
+      if (result.error?.message.includes('SOURCE_CHANGED')) throw new HttpError(409, 'La prenda cambió. Cierra y vuelve a abrirla.');
+      dbCheck(result.error);
+    } catch (error) {
+      const committed = await db.from('garments').select('cutout_path').eq('id', id).maybeSingle();
+      if (!committed.error && committed.data?.cutout_path === photoPath) return json({ ok: true });
+      if (!committed.error) await admin.storage.from('wardrobe').remove([photoPath, thumbPath]);
+      throw error;
+    }
+    return json({ ok: true });
+  }
+  if (route === 'garments' && id && path.length === 2 && (method === 'PATCH' || method === 'DELETE')) {
     z.string().uuid().parse(id);
     const input = method === 'PATCH' ? garmentInput.parse(await readJson(req)) : {};
     dbCheck((await admin.rpc('change_garment', { p_user: user.id, p_id: id, p_data: input, p_delete: method === 'DELETE' })).error);

@@ -67,7 +67,7 @@ async function run(job: Work) {
       const garments = gs.data as Garment[];
       if (renderKey(profile, outfit, garments) !== job.render_key) throw new Error('Source changed');
       const files = [await toFile(await bytes(profile.photo_path!, job.user_id), 'persona.jpg', { type: 'image/jpeg' })];
-      for (const g of garments) files.push(await toFile(await bytes(g.photo_path, job.user_id), `${g.id}.jpg`, { type: 'image/jpeg' }));
+      for (const g of garments) files.push(await toFile(await bytes(g.cutout_path || g.photo_path, job.user_id), `${g.id}.${g.cutout_path ? 'webp' : 'jpg'}`, { type: g.cutout_path ? 'image/webp' : 'image/jpeg' }));
       const state = await db.from('ai_jobs').select('status').eq('id', job.id).single(); check(state.error);
       if (state.data?.status !== 'running') throw new Error('Cancelled');
       const imageClient = getAi();
