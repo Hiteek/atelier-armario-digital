@@ -1,0 +1,21 @@
+name: Verificar armario
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Localizar la carpeta de aplicación
+        run: |
+          if [ -f armario-digital/package.json ]; then echo "APP_DIR=armario-digital" >> "$GITHUB_ENV"; else echo "APP_DIR=." >> "$GITHUB_ENV"; fi
+      - run: npm ci
+        working-directory: ${{ env.APP_DIR }}
+      - run: npm run typecheck
+        working-directory: ${{ env.APP_DIR }}
+      - run: npm test
+        working-directory: ${{ env.APP_DIR }}
+      - run: npm run build
+        working-directory: ${{ env.APP_DIR }}

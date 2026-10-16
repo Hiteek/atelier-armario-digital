@@ -1,0 +1,35 @@
+{
+  "name": "armario-digital",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "worker": "tsx worker/index.ts",
+    "render:free": "tsx worker/render-free.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.57.0",
+    "dotenv": "^16.6.0",
+    "lucide-react": "^0.468.0",
+    "next": "^16.0.0",
+    "openai": "^6.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "sharp": "^0.34.0",
+    "tsx": "^4.20.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.10",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
