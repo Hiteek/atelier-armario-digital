@@ -138,6 +138,7 @@ async function dispatch(req: Request, ctx: Context) {
     const input = suggestionInput.parse(await readJson(req));
     const { data, error } = await db.from('garments').select('id').eq('status', 'ready').eq('available', true).is('deleted_at', null); dbCheck(error);
     if (!data?.length) throw new HttpError(400, 'Sube y confirma al menos una prenda disponible para recibir ideas.');
+    if (input.anchor_garment_id && !data.some(g => g.id === input.anchor_garment_id)) throw new HttpError(400, 'Elige una prenda confirmada y disponible de tu armario.');
     const job = await admin.rpc('enqueue_job', { p_user: user.id, p_kind: 'suggest', p_key: requestKey(req), p_payload: input }); dbCheck(job.error);
     return json({ job: { id: job.data.id, status: job.data.status } }, 202);
   }

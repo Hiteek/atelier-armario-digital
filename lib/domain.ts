@@ -15,7 +15,7 @@ export const profileInput = z.object({
   favorite_colors: z.array(z.string().trim().min(1).max(30)).max(12),
   work_formality: z.number().int().min(1).max(5), monthly_image_limit: z.number().int().min(0).max(1000)
 });
-export const suggestionInput = z.object({ occasion: z.enum(OCCASIONS), notes: z.string().trim().max(500).default('') });
+export const suggestionInput = z.object({ occasion: z.enum(OCCASIONS), notes: z.string().trim().max(500).default(''), anchor_garment_id: z.string().uuid().optional() });
 export const outfitInput = z.object({
   title: z.string().trim().min(1).max(100), explanation: z.string().max(1200),
   occasion: z.enum(OCCASIONS), garment_ids: z.array(z.string().uuid()).min(1).max(12),
@@ -40,7 +40,14 @@ export type AgendaEvent = { id: string; date: string; occasion: typeof OCCASIONS
 export type Simulation = { id: string; outfit_id: string; image_path: string; image_url?: string; cache_key: string; photo_version: number };
 export type Snapshot = { profile: Profile; garments: Garment[]; outfits: Outfit[]; events: AgendaEvent[]; jobs: Job[]; simulations: Simulation[]; image_requests: number; pending_jobs: number };
 
-export function validateOutfit(outfit: z.infer<typeof outfitInput>, garments: Garment[]) {
+export class SuggestionConstraintError extends Error {}
+export function validateSuggestionAnchor(anchorId: string | undefined, garments: Garment[]) {
+  if (!anchorId) return;
+  const anchor = garments.find(g => g.id === anchorId);
+  if (!anchor || anchor.deleted_at || !anchor.available || anchor.status !== 'ready') throw new SuggestionConstraintError('La prenda elegida ya no está disponible. Confírmala o elige otra prenda.');
+}
+export function validateOutfit(outfit: z.infer<typeof outfitInput>, garments: Garment[], anchorId?: string) {
+  if (anchorId && !outfit.garment_ids.includes(anchorId)) throw new SuggestionConstraintError('No se pudieron crear propuestas que incluyan tu prenda elegida. Vuelve a solicitar las combinaciones.');
   if (new Set(outfit.garment_ids).size !== outfit.garment_ids.length) throw new Error('Prendas repetidas en el conjunto.');
   const byId = new Map(garments.map(g => [g.id, g]));
   for (const id of outfit.garment_ids) {

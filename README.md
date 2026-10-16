@@ -42,6 +42,10 @@ La migración crea el bucket `wardrobe` como privado. Los enlaces de lectura dur
 
 ## Procesamiento a petición e IA
 
+### Combinar una prenda elegida
+
+En una prenda confirmada y disponible, **Combinar esta prenda** abre las ideas con esa pieza fijada. También se puede elegir o quitar desde el selector opcional en Ideas de looks. La petición conserva `anchor_garment_id` en el trabajo de propuestas; el servidor comprueba que pertenece al inventario disponible y el trabajador vuelve a comprobarlo antes de llamar a la IA. Todas las propuestas se validan para exigir ese identificador, además de las comprobaciones de disponibilidad y piezas faltantes. Una respuesta que lo omita no se guarda. Sin prenda fija se mantiene la búsqueda general. Este paso usa el modelo de recomendaciones y no genera una simulación sobre la persona.
+
 ### Fotos sin fondo y composición de conjuntos
 
 En cada prenda, **Quitar fondo** procesa la imagen en un Web Worker del navegador con Transformers.js y BiRefNet Lite 512 (revisión fijada). No se envían fotos a Hugging Face ni se consume OpenAI para este paso. Se descargan pesos públicos desde Hugging Face y el runtime WASM de su distribución; la primera descarga de pesos es de 94 MB en WebGPU fp16 o 183 MB en WASM fp32. Si el adaptador GPU produce una máscara inválida, se prueba WASM y se recuerda esa preferencia solo durante la sesión para evitar otra descarga GPU; el primer intento puede descargar ambos pesos (~277 MB más el runtime). El navegador puede reutilizar su caché; en dispositivos con poca memoria el recorte puede fallar y el original permanece disponible. El modelo se libera tras 90 segundos sin uso.

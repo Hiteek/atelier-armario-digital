@@ -20,6 +20,23 @@ function fixtures(cleanupError = false) {
   return { db, updates, storage, rpc, results };
 }
 describe('Procesador compartido sin trabajador de pago', () => {
+  it('incluye la prenda fija en la solicitud y guarda una propuesta que la conserva', async () => {
+    const f=fixtures(); const parse=vi.fn(async (_input:unknown)=>({output_parsed:{outfits:[outfit]}}));
+    await createJobRunner(f.db,()=>({responses:{parse}}) as unknown as OpenAI)({...renderJob,kind:'suggest',payload:{occasion:'casual',anchor_garment_id:gs[0].id}});
+    expect(JSON.stringify(parse.mock.calls[0][0])).toContain(gs[0].id);
+    expect(f.rpc).toHaveBeenCalledWith('complete_suggestions',expect.objectContaining({p_outfits:[expect.objectContaining({occasion:'casual',garment_ids:gs.map(g=>g.id)})]}));
+    expect(f.storage.download).not.toHaveBeenCalled();
+  });
+  it('no guarda propuestas que omitan la prenda fija', async () => {
+    const f=fixtures(); const parse=vi.fn(async()=>({output_parsed:{outfits:[{...outfit,garment_ids:gs.slice(1).map(g=>g.id)}]}}));
+    await createJobRunner(f.db,()=>({responses:{parse}}) as unknown as OpenAI)({...renderJob,kind:'suggest',payload:{occasion:'casual',anchor_garment_id:gs[0].id}});
+    expect(f.rpc).not.toHaveBeenCalled(); expect(f.updates.at(-1)?.data.status).toBe('failed');
+  });
+  it('rechaza una prenda fija no disponible antes de llamar a la IA', async () => {
+    const f=fixtures();const getAi=vi.fn(); f.results.garments=gs.slice(1);
+    await createJobRunner(f.db,getAi)({...renderJob,kind:'suggest',payload:{occasion:'casual',anchor_garment_id:gs[0].id}});
+    expect(getAi).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled(); expect(f.updates.at(-1)?.data.status).toBe('failed');
+  });
   it('usa el recorte aprobado como referencia y conserva el tipo de archivo correcto', async () => {
     const f=fixtures(); const cutout=`${owner}/cutouts/${gs[0].id}/approved/photo.webp`;
     const cleaned=gs.map((g,i)=>i===0?{...g,cutout_path:cutout,version:2}:g); f.results.garments=cleaned;

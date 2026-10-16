@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eventInput, garmentInput, limaMonth, renderKey, validateOutfit, type Garment, type Outfit, type Profile } from '../lib/domain';
+import { eventInput, garmentInput, limaMonth, renderKey, validateOutfit, validateSuggestionAnchor, suggestionInput, type Garment, type Outfit, type Profile } from '../lib/domain';
 import { preparePhoto } from '../lib/images';
 import sharp from 'sharp';
 
@@ -14,6 +14,18 @@ const outfit: Outfit = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', title: 'Loo
 const profile: Profile = { user_id: owner, display_name: 'Yo', photo_path: `${owner}/profile/photo.jpg`, photo_version: 1, styles: [], favorite_colors: [], work_formality: 3, monthly_image_limit: 30 };
 
 describe('Conjuntos y cache de imágenes', () => {
+  it('permite búsquedas generales y exige un identificador válido para fijar una prenda', () => {
+    expect(suggestionInput.parse({occasion:'casual'}).anchor_garment_id).toBeUndefined();
+    expect(()=>suggestionInput.parse({occasion:'casual',anchor_garment_id:'inventado'})).toThrow();
+    expect(()=>validateSuggestionAnchor(garments[0].id,garments)).not.toThrow();
+    for(const changes of [{available:false},{status:'review'},{deleted_at:'2026-10-15'}]) expect(()=>validateSuggestionAnchor(garments[0].id,[{...garments[0],...changes}])).toThrow();
+    expect(()=>validateSuggestionAnchor('cccccccc-cccc-4ccc-8ccc-cccccccccccc',garments)).toThrow();
+  });
+  it('rechaza propuestas que omiten la prenda fija y conserva las piezas faltantes', () => {
+    expect(()=>validateOutfit({...outfit,garment_ids:garments.slice(1).map(g=>g.id)},garments,garments[0].id)).toThrow();
+    const partial=validateOutfit({...outfit,garment_ids:[garments[0].id]},garments,garments[0].id);
+    expect(partial.garment_ids).toContain(garments[0].id); expect(partial.missing).toContain('Calzado');
+  });
   it('rechaza prendas inventadas, retiradas, pendientes y no disponibles', () => {
     expect(() => validateOutfit({ ...outfit, garment_ids: ['cccccccc-cccc-4ccc-8ccc-cccccccccccc'] }, garments)).toThrow();
     for (const changes of [{ deleted_at: '2026-10-14' }, { available: false }, { status: 'review' }]) {
