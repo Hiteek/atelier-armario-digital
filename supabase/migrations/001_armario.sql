@@ -4,9 +4,12 @@ create table public.app_owner (
   user_id uuid not null unique references auth.users(id)
 );
 alter table public.app_owner enable row level security;
-create function public.is_armario_owner() returns boolean language sql stable security definer
+create policy owner_identity_read on public.app_owner for select to authenticated
+using (user_id = (select auth.uid()));
+grant select on public.app_owner to authenticated;
+create function public.is_armario_owner() returns boolean language sql stable security invoker
 set search_path = public as $$ select exists(select 1 from public.app_owner where user_id = auth.uid()) $$;
-revoke all on function public.is_armario_owner() from public;
+revoke all on function public.is_armario_owner() from public,anon,authenticated;
 grant execute on function public.is_armario_owner() to authenticated;
 
 create table public.profiles (
@@ -261,3 +264,4 @@ revoke all on function public.complete_suggestions(uuid,jsonb) from public,anon,
 grant execute on function public.enqueue_job(uuid,text,text,jsonb,text),public.register_garment(uuid,uuid,text,text,text),
   public.claim_job(uuid),public.retire_images(uuid,uuid),public.change_photo(uuid,text),public.change_garment(uuid,uuid,jsonb,boolean),
   public.complete_render(uuid,text,integer,jsonb),public.delete_simulation(uuid,uuid),public.complete_analysis(uuid,jsonb),public.complete_suggestions(uuid,jsonb) to service_role;
+

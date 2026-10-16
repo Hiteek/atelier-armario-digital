@@ -23,6 +23,7 @@ beforeAll(async () => {
     create function storage.foldername(text) returns text[] language sql immutable as $$ select string_to_array($1,'/') $$;
     grant usage on schema public,auth,storage to authenticated,anon,service_role;
     grant select on storage.objects to authenticated;
+    alter default privileges in schema public grant execute on functions to anon,authenticated;
   `);
   await db.exec(await readFile(new URL('../supabase/migrations/001_armario.sql', import.meta.url), 'utf8'));
   await db.exec(`insert into auth.users values('${owner}'),('${stranger}');
@@ -37,6 +38,16 @@ afterEach(async () => { await db.exec('rollback'); });
 afterAll(async () => { await db.close(); });
 
 describe('Base de datos PostgreSQL, RLS y cola', () => {
+  it('revoca el permiso anónimo heredado y comprueba al propietario sin privilegios elevados', async () => {
+    expect((await query<{ allowed: boolean }>("select has_function_privilege('anon','public.is_armario_owner()','EXECUTE') as allowed"))[0].allowed).toBe(false);
+    expect((await query<{ definer: boolean }>("select prosecdef as definer from pg_proc where oid='public.is_armario_owner()'::regprocedure"))[0].definer).toBe(false);
+    await db.exec(`set role authenticated; set "app.user"='${owner}';`);
+    expect((await query<{ allowed: boolean }>('select is_armario_owner() as allowed'))[0].allowed).toBe(true);
+    expect(await query('select user_id from app_owner')).toEqual([{ user_id: owner }]);
+    await db.exec(`set "app.user"='${stranger}'`);
+    expect(await query('select user_id from app_owner')).toEqual([]);
+    expect((await query<{ allowed: boolean }>('select is_armario_owner() as allowed'))[0].allowed).toBe(false);
+  });
   it('registra 30 prendas, permite revisión y filtra por categoría y color', async () => {
     for (let n = 10; n < 40; n++) {
       const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -124,3 +135,4 @@ describe('Base de datos PostgreSQL, RLS y cola', () => {
     await expect(query('select complete_suggestions($1,$2)', [j.id, [{ title: 'Inventado', explanation: 'Prueba', occasion: 'cita', garment_ids: [item], missing: [] }]])).rejects.toThrow(/STALE_GARMENT/);
   });
 });
+
