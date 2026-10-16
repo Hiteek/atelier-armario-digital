@@ -5,3 +5,6 @@ node_modules/
 coverage/
 *.tsbuildinfo
 validation/private/
+/private/
+/uploads/
+/deployment.json

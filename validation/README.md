@@ -4,6 +4,8 @@ No se han realizado generaciones reales. Se necesitan una foto de cuerpo complet
 
 Para cada prueba, confirmar primero todas las prendas, solicitar un conjunto completo y generar una imagen desde “Verme con este look”. Registrar el ID del trabajo, modelo, fecha, resultado y coste disponible en el proveedor. El límite de solicitudes no permite calcular por sí solo el coste real.
 
+Conservar las fotos y los resultados reales en `validation/private/`, excluido de Git. Esta plantilla pública debe permanecer sin identificadores, imágenes ni información personal de las pruebas.
+
 | Caso | Conjunto representativo | Identidad | Color | Estampado | Corte/silueta | Coste observado |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Trabajo: superior liso + pantalón + calzado | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente |
