@@ -37,7 +37,7 @@ export type Profile = {
 export type Outfit = z.infer<typeof outfitInput> & { id: string; favorite: boolean; created_at: string };
 export type Job = { id: string; kind: string; status: string; error: string | null; result: Record<string, unknown> | null; created_at: string; outfit_id?: string };
 export type AgendaEvent = { id: string; date: string; occasion: typeof OCCASIONS[number]; notes: string; outfit_id: string | null };
-export type Simulation = { id: string; outfit_id: string; image_path: string; image_url?: string; cache_key: string; photo_version: number };
+export type Simulation = { id: string; outfit_id: string; image_path: string; image_url?: string; cache_key: string; photo_version: number; created_at?: string };
 export type Snapshot = { profile: Profile; garments: Garment[]; outfits: Outfit[]; events: AgendaEvent[]; jobs: Job[]; simulations: Simulation[]; image_requests: number; pending_jobs: number };
 
 export class SuggestionConstraintError extends Error {}

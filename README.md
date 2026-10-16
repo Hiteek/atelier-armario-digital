@@ -42,6 +42,10 @@ La migración crea el bucket `wardrobe` como privado. Los enlaces de lectura dur
 
 ## Procesamiento a petición e IA
 
+### Galería de simulaciones
+
+**Mis simulaciones** reúne todas las imágenes que siguen guardadas en el armario, de más reciente a más antigua. Cada tarjeta permite ampliar esa imagen concreta y abrir su conjunto, incluso cuando hay varias simulaciones del mismo conjunto. La galería usa los enlaces privados temporales de la consulta autenticada existente y no solicita generaciones nuevas. También incluye un estado vacío y acceso desde la navegación móvil.
+
 ### Combinar una prenda elegida
 
 En una prenda confirmada y disponible, **Combinar esta prenda** abre las ideas con esa pieza fijada. También se puede elegir o quitar desde el selector opcional en Ideas de looks. La petición conserva `anchor_garment_id` en el trabajo de propuestas; el servidor comprueba que pertenece al inventario disponible y el trabajador vuelve a comprobarlo antes de llamar a la IA. Todas las propuestas se validan para exigir ese identificador, además de las comprobaciones de disponibilidad y piezas faltantes. Una respuesta que lo omita no se guarda. Sin prenda fija se mantiene la búsqueda general. Este paso usa el modelo de recomendaciones y no genera una simulación sobre la persona.
