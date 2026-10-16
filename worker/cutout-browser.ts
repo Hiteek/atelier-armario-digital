@@ -1,5 +1,5 @@
 import { AutoModel, AutoProcessor, RawImage, env } from '@huggingface/transformers';
-import { alphaFromLogits } from '../lib/cutout-mask';
+import { alphaFromLogits, foregroundBounds } from '../lib/cutout-mask';
 
 // We download fixed public weights only. User images never leave this worker.
 const modelId = 'studioludens/birefnet-lite-512';
@@ -13,6 +13,10 @@ const scope = self as unknown as { onmessage: ((e: MessageEvent<Blob>) => Promis
 const progress = (message: string) => scope.postMessage({ type: 'progress', message });
 let model: Awaited<ReturnType<typeof AutoModel.from_pretrained>> | undefined;
 let processor: Awaited<ReturnType<typeof AutoProcessor.from_pretrained>> | undefined;
+let usingGpu = false;
+const options = { revision, progress_callback: (event: { status: string; progress?: number }) => {
+  if (event.status === 'progress' && typeof event.progress === 'number') progress(`Descargando el recortador: ${Math.round(event.progress)} %. Tus fotos siguen en tu dispositivo.`);
+} };
 
 scope.onmessage = async ({ data: blob }) => {
   try {
@@ -21,11 +25,9 @@ scope.onmessage = async ({ data: blob }) => {
       const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ features: Set<string> } | null> } }).gpu;
       const adapter = await gpu?.requestAdapter().catch(() => null);
       const useGpu = adapter?.features.has('shader-f16');
-      const options = { revision, progress_callback: (event: { status: string; progress?: number }) => {
-        if (event.status === 'progress' && typeof event.progress === 'number') progress(`Descargando el recortador: ${Math.round(event.progress)} %. Tus fotos siguen en tu dispositivo.`);
-      } };
       try {
         model = await AutoModel.from_pretrained(modelId, { ...options, device: useGpu ? 'webgpu' : 'wasm', dtype: useGpu ? 'fp16' : 'fp32' });
+        usingGpu = !!useGpu;
       } catch (error) {
         if (!useGpu) throw error;
         progress('Preparando una alternativa compatible con tu dispositivo…');
@@ -36,11 +38,33 @@ scope.onmessage = async ({ data: blob }) => {
     progress('Separando la prenda del fondo en tu dispositivo…');
     const image = await RawImage.fromBlob(blob);
     const { pixel_values } = await processor!(image);
-    const output = await model({ input_image: pixel_values });
-    const logits = output.logits ?? Object.values(output)[0];
-    const alpha = alphaFromLogits(logits.data as ArrayLike<number>, logits.type);
+    const infer = async () => {
+      const output = await model!({ input_image: pixel_values });
+      const logits = output.logits ?? output.output_image ?? Object.values(output)[0];
+      try {
+        const alpha = alphaFromLogits(logits.data as ArrayLike<number>, logits.type);
+        // Validate before accepting GPU output; some adapters silently produce an unusable mask.
+        try { foregroundBounds(alpha,512,512); }
+        catch (error) {
+          let min=255,max=0,foreground=0;
+          for (const value of alpha) { min=Math.min(min,value);max=Math.max(max,value);if(value>=128)foreground++; }
+          scope.postMessage({ type:'diagnostic', engine:usingGpu?'webgpu':'wasm', tensorType:logits.type, min,max,foreground:foreground/alpha.length });
+          throw error;
+        }
+        return alpha;
+      } finally { logits.dispose(); }
+    };
+    let alpha: Uint8Array;
+    try { alpha = await infer(); }
+    catch (error) {
+      if (!usingGpu) throw error;
+      progress('Probando un recorte compatible con tu dispositivo. El original se conserva…');
+      await model.dispose(); model = undefined; usingGpu = false;
+      model = await AutoModel.from_pretrained(modelId, { ...options, device: 'wasm', dtype: 'fp32' });
+      alpha = await infer();
+    }
     scope.postMessage({ type: 'result', alpha, width: 512, height: 512 }, [alpha.buffer]);
-    pixel_values.dispose(); logits.dispose();
+    pixel_values.dispose();
   } catch {
     scope.postMessage({ type: 'error', message: 'Este dispositivo no pudo completar el recorte. Prueba desde un ordenador o con una foto más sencilla. Tu original sigue guardado.' });
   }

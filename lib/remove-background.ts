@@ -16,6 +16,7 @@ export async function removeBackground(blob: Blob, onProgress: (message: string)
       const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); currentWorker.onmessage = null; currentWorker.onerror = null; };
       currentWorker.onmessage = ({ data }) => {
         if (data.type === 'progress') onProgress(data.message);
+        else if (data.type === 'diagnostic') console.info('cutout-mask-check', data);
         else if (data.type === 'result') { finish(); resolve(data); }
         else { stop(); finish(); reject(new Error(data.message)); }
       };
